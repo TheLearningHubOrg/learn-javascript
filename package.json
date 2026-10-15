@@ -1,23 +1,22 @@
 {
   "name": "learn-javascript",
-  "version": "1.18.1",
-  "description": "Complete JavaScript with all resources to learn.",
-  "main": "index.js",
+  "version": "1.0.0",
+  "description": "Exhaustive, production-grade ECMAScript & V8 platform architecture masterclass.",
+  "main": "src/index.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
-    "start": "node index.js"
-  },
-  "repository": {
-    "type": "git",
-    "url": "git+https://github.com/manthanank/learn-javascript.git"
+    "start": "node src/index.js",
+    "test": "node --test tests/runtime.test.js"
   },
   "keywords": [
-    "javascript"
+    "javascript",
+    "ecmascript",
+    "v8",
+    "event-loop",
+    "closures",
+    "prototypes",
+    "async"
   ],
   "author": "Manthan Ank",
-  "license": "ISC",
-  "bugs": {
-    "url": "https://github.com/manthanank/learn-javascript/issues"
-  },
-  "homepage": "https://github.com/manthanank/learn-javascript#readme"
+  "license": "MIT"
 }

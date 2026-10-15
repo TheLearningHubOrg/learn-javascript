@@ -1,20 +1,13 @@
-# Use Node.js 14 LTS version as base image
-FROM node:14
-
-# Set the working directory in the container
+# Multi-stage Dockerfile for learn-javascript
+FROM node:22-alpine AS builder
 WORKDIR /app
+COPY package.json ./
+COPY src/ ./src/
+COPY tests/ ./tests/
+RUN npm test
 
-# Copy package.json and package-lock.json to the working directory
-COPY package*.json ./
-
-# Install dependencies
-RUN npm install
-
-# Copy all files from the current directory to the working directory in the container
-COPY . .
-
-# Expose the port the app runs on
-EXPOSE 3000
-
-# Command to run the application
-CMD ["node", "index.js"]
+FROM node:22-alpine AS runner
+WORKDIR /app
+COPY --from=builder /app /app
+USER node
+CMD ["node", "src/index.js"]
