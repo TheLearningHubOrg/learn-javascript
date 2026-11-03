@@ -18,7 +18,7 @@ describe('Event Loop Prioritization Mechanics', () => {
       '[Sync] Sync-1',
       '[Microtask] Micro-1',
       '[Microtask] Micro-2',
-      '[Macrotask] Macro-1'
+      '[Macrotask] Macro-1',
     ]);
   });
 });
@@ -66,5 +66,29 @@ describe('7-Stage Pedagogical Roadmap Integrity', () => {
     assert.equal(JAVASCRIPT_STAGES.length, 7);
     assert.equal(getCompletedCount(), 7);
     assert.equal(getProgressPercentage(), 100);
+  });
+});
+
+describe('Debounce and throttle', () => {
+  it('debounce runs only the last call in a burst', async () => {
+    const calls = [];
+    const save = debounce((value) => {
+      calls.push(value);
+      return value;
+    }, 20);
+    save('a');
+    save('b');
+    const result = await save('c');
+    assert.equal(result, 'c');
+    assert.deepEqual(calls, ['c']);
+  });
+
+  it('throttle ignores calls inside the window', async () => {
+    let count = 0;
+    const tick = throttle(() => ++count, 30);
+    assert.equal(tick(), 1);
+    assert.equal(tick(), undefined);
+    await new Promise((resolve) => setTimeout(resolve, 40));
+    assert.equal(tick(), 2);
   });
 });

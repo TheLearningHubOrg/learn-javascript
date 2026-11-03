@@ -1,12 +1,16 @@
 {
   "name": "learn-javascript",
-  "version": "1.0.0",
-  "description": "Exhaustive, production-grade ECMAScript & V8 platform architecture masterclass.",
-  "main": "src/index.js",
+  "version": "1.19.0",
+  "description": "Learn JavaScript from syntax to staff-level runtime internals, with a dependency-free Node.js starter API.",
+  "main": "src/server.js",
   "type": "module",
   "scripts": {
-    "start": "node src/index.js",
-    "test": "node --test tests/runtime.test.js"
+    "start": "node src/server.js",
+    "demo": "node src/index.js",
+    "test": "node --test",
+    "lint": "eslint .",
+    "format": "prettier --write src tests eslint.config.js",
+    "format:check": "prettier --check src tests eslint.config.js"
   },
   "keywords": [
     "javascript",
@@ -17,6 +21,19 @@
     "prototypes",
     "async"
   ],
-  "author": "Manthan Ank",
-  "license": "MIT"
+  "author": "Manthan Ankolekar",
+  "license": "MIT",
+  "engines": {
+    "node": ">=22"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TheLearningHubOrg/learn-javascript.git"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.14.0",
+    "globals": "^17.14.0",
+    "prettier": "^3.9.10"
+  }
 }

@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Must match EXPOSE in the Dockerfile and the port the process listens on.
+  APP_PORT: "8080"
+  HEALTH_PATH: "/health"
+
+jobs:
+  test:
+    name: Install, test, build (Node ${{ matrix.node }})
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: [22, 24, 26]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint --if-present
+      - run: npm test
+      - run: npm run build --if-present
+
+  docker:
+    name: Docker image builds and answers on APP_PORT
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: docker/setup-buildx-action@v3
+      - name: Build image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          load: true
+          push: false
+          tags: guide-app:ci
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test the container
+        run: |
+          docker run -d --name app -p 8080:${APP_PORT} guide-app:ci
+          for _ in $(seq 1 30); do
+            if curl -fsS "http://localhost:8080${HEALTH_PATH}" > /dev/null; then
+              echo "Container answered on port ${APP_PORT}"; exit 0
+            fi
+            sleep 2
+          done
+          docker logs app
+          exit 1

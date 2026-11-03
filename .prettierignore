@@ -1,0 +1,6 @@
+node_modules/
+coverage/
+package-lock.json
+CHANGELOG.md
+README.md
+public/

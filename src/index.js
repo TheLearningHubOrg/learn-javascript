@@ -1,4 +1,4 @@
-import { EventLoopSimulator, debounce } from './runtime/event-loop-simulator.js';
+import { EventLoopSimulator } from './runtime/event-loop-simulator.js';
 import { createCounter, curry } from './runtime/closure-scope.js';
 import { inspectPrototypeChain, createDeepClone } from './runtime/prototypes.js';
 import { JAVASCRIPT_STAGES, getCompletedCount, getProgressPercentage } from './roadmap.js';
@@ -44,11 +44,13 @@ console.log(`  Prototype Hierarchy: [${instance.constructor.name}] -> ${chain.jo
 const complexObj = {
   id: 1,
   meta: { tags: ['js', 'v8'] },
-  created: new Date()
+  created: new Date(),
 };
 const clone = createDeepClone(complexObj);
 clone.meta.tags.push('es2024');
-console.log(`  Deep Clone Isolation: original tags = [${complexObj.meta.tags.join(', ')}], cloned = [${clone.meta.tags.join(', ')}]\n`);
+console.log(
+  `  Deep Clone Isolation: original tags = [${complexObj.meta.tags.join(', ')}], cloned = [${clone.meta.tags.join(', ')}]\n`,
+);
 
 // 4. 7-Stage Pedagogical Roadmap
 console.log('--- 4. 7-Stage Modern JavaScript Masterclass Roadmap ---');

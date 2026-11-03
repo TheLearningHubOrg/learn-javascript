@@ -16,7 +16,7 @@ export function createCounter(initialValue = 0) {
     },
     getValue() {
       return count;
-    }
+    },
   };
 }
 

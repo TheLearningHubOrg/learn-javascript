@@ -38,3 +38,22 @@ dist_electron_release/
 # OS generated files
 .DS_Store
 Thumbs.db
+
+# --- merged from the standard node template ---
+# Node / TypeScript
+out-tsc/
+coverage/
+.angular/cache
+.next/
+.nuxt/
+.turbo/
+*.tsbuildinfo
+yarn-error.log*
+pnpm-debug.log*
+# Editors and OS
+.vscode/*
+!.vscode/settings.json
+!.vscode/extensions.json
+# Env files (never commit secrets)
+.env.*
+!.env.example
