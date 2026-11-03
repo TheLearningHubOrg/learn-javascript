@@ -1,11 +1,11 @@
-# [1.19.0](https://github.com/TheLearningHubOrg/learn-javascript/compare/v1.18.1...v1.19.0) (2026-11-03)
+# [1.20.0](https://github.com/TheLearningHubOrg/learn-javascript/compare/v1.18.1...v1.20.0) (2026-11-03)
 
 
 ### Features
 
-* restructure the README into the 7-stage standard with numbered sections, a versions and migration section, and deeper Stages 1-3
-* add a dependency-free Node.js starter API (`src/server.js`, `src/app.js`, `src/lib/`) with node:test suites for Stages 1-3
-* add CI (ESLint, node:test on Node 22/24/26, Docker smoke test), a multi-stage Dockerfile and the PA_TOKEN-guarded release workflow
+* bootstrap modern ES2024+ V8 execution engine and roadmap matching learn-angular parity ([abea8cb](https://github.com/TheLearningHubOrg/learn-javascript/commit/abea8cb9de0681195e11bee392a599df1b48242e))
+* restructure to the 7-stage standard, deepen stages 1-3, add starter project, CI, Docker and releases ([ce9b74d](https://github.com/TheLearningHubOrg/learn-javascript/commit/ce9b74d681e7cecafe42be7c09d0224484ef2745))
+* standardize JavaScript masterclass to unified 7-stage curriculum format ([cca2776](https://github.com/TheLearningHubOrg/learn-javascript/commit/cca27764cc1dc447f834f7d0d0c498871acdfeb9))
 
 
 
@@ -42,15 +42,6 @@
 ### Features
 
 * Add functions for sorting, finding max/min, sum/average, prime/palindrome checks, and duplicate removal ([4042709](https://github.com/TheLearningHubOrg/learn-javascript/commit/40427091267a271b2ec3160f4d47563fd53a2a07))
-
-
-
-# [1.15.0](https://github.com/TheLearningHubOrg/learn-javascript/compare/v1.14.0...v1.15.0) (2024-10-06)
-
-
-### Features
-
-* Add functions for sorting, finding max/min, sum/average, prime/palindrome checks, and duplicate removal ([76cba6f](https://github.com/TheLearningHubOrg/learn-javascript/commit/76cba6fb77c9126281e2920b6a04017900b04a74))
 
 
 

@@ -1,6 +1,6 @@
 {
   "name": "learn-javascript",
-  "version": "1.19.0",
+  "version": "1.20.0",
   "description": "Learn JavaScript from syntax to staff-level runtime internals, with a dependency-free Node.js starter API.",
   "main": "src/server.js",
   "type": "module",
