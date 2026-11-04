@@ -47,7 +47,7 @@ flowchart LR
 | **Stage 4** | **Asynchronous JavaScript & the Event Loop** | Callbacks, timers, the Promise state machine, `async`/`await`, microtasks vs tasks, `Promise.all`/`allSettled`/`any`/`race`. |
 | **Stage 5** | **DOM, Browser APIs, Networking & JSON** | DOM traversal and mutation, events, the BOM (`window`, `location`, `history`), Web Storage, `fetch`, JSON serialisation, canvas and charting libraries. |
 | **Stage 6** | **Performance, Best Practices & Modern Idioms** | Common mistakes, performance habits, ES5 and ES2015 feature reference, production snippets and shorthands. |
-| **Masterclasses** | **Engine internals and advanced runtime topics** | Added in a later revision of this guide. |
+| **Masterclasses** | **Engine Internals, Concurrency & Metaprogramming** | V8 pipeline (Ignition, TurboFan), Hidden Classes, Inline Caches, Generational GC, Proxies, Reflect, Atomics, ArrayBuffer, and Iterator Helpers. |
 | **Stage 7** | **Staff Interview Handbook** | Interview Q&As and a coding problem bank with worked solutions. |
 
 ---
@@ -339,7 +339,20 @@ New ECMAScript editions are backwards compatible ("don't break the web"), so mos
   - [6.5 ES2015 (ES6) Features](#65-es2015-es6-features)
   - [6.6 Snippets](#66-snippets)
   - [6.7 Shorthands](#67-shorthands)
+- [🎓 Masterclasses: Engine Internals, Concurrency & Advanced JavaScript Architecture](#-masterclasses-engine-internals-concurrency--advanced-javascript-architecture)
+  - [M.1 V8 Engine Architecture: Ignition, TurboFan, Hidden Classes & Inline Caching](#m1-v8-engine-architecture-ignition-turbofan-hidden-classes--inline-caching)
+  - [M.2 V8 Memory Management: Generational GC, Scavenger & Heap Profiling](#m2-v8-memory-management-generational-gc-scavenger--heap-profiling)
+  - [M.3 Metaprogramming: Proxies, Reflect, WeakRef & Decorators](#m3-metaprogramming-proxies-reflect-weakref--decorators)
+  - [M.4 Binary Data & Memory Layout: ArrayBuffer, TypedArrays & DataView](#m4-binary-data--memory-layout-arraybuffer-typedarrays--dataview)
+  - [M.5 Advanced Concurrency: Web Workers, SharedArrayBuffer & Atomics](#m5-advanced-concurrency-web-workers-sharedarraybuffer--atomics)
+  - [M.6 Specification Protocols: Well-Known Symbols, Property Enumeration & Coercion](#m6-specification-protocols-well-known-symbols-property-enumeration--coercion)
+  - [M.7 Modern Iteration: Iterator Helpers, Async Generators & Reactive Streams](#m7-modern-iteration-iterator-helpers-async-generators--reactive-streams)
+  - [M.8 Advanced Regular Expressions: Lookarounds, Unicode Sets & ReDoS Prevention](#m8-advanced-regular-expressions-lookarounds-unicode-sets--redos-prevention)
+  - [M.9 Internationalization (Intl): Collator, PluralRules & UTF-16 Unicode Surrogates](#m9-internationalization-intl-collator-pluralrules--utf-16-unicode-surrogates)
 - [7. Stage 7: Staff JavaScript Engineer Interview Handbook & Cheatsheet](#7-stage-7-staff-javascript-engineer-interview-handbook--cheatsheet)
+  - [7.1 Questions for Freshers](#71-questions-for-freshers)
+  - [7.2 Questions for Experienced](#72-questions-for-experienced)
+  - [7.3 Coding Questions & Exercises](#73-coding-questions--exercises)
   - [7.6 Coding Problem Bank](#76-coding-problem-bank)
   - [7.7 Practice Problem List](#77-practice-problem-list)
 - [🧪 Example Projects](#-example-projects)
@@ -2436,6 +2449,38 @@ console.log(a);
 ```
 
 ### 2.4 Hoisting and the Two Phases of Running Code
+
+#### Execution Context: Creation and Execution Phases
+Every execution context (Global, Function, or Eval) in JavaScript is processed in two distinct phases:
+
+```mermaid
+flowchart TD
+    subgraph PHASE1["Phase 1: Creation Phase (Compile/Setup)"]
+        direction TB
+        GE["Global / Outer Environment created"]
+        THIS_INIT["'this' binding determined"]
+        VE["VariableEnvironment: var hoisted as undefined, functions hoisted in full"]
+        LE["LexicalEnvironment: let and const placed in Temporal Dead Zone (TDZ)"]
+    end
+    subgraph PHASE2["Phase 2: Execution Phase (Runtime evaluation)"]
+        direction TB
+        EX1["Executes statements line by line"]
+        EX2["Variable assignments resolved (let x = 10)"]
+        EX3["Function invocations push new contexts to Call Stack"]
+    end
+    PHASE1 --> PHASE2
+```
+
+1. **Creation Phase**:
+   - The engine creates the **LexicalEnvironment** and **VariableEnvironment**.
+   - Functions declarations are hoisted into memory with their full definitions.
+   - Variables declared with `var` are initialized to `undefined`.
+   - Variables declared with `let` and `const` are registered in the LexicalEnvironment Record uninitialized, entering the **Temporal Dead Zone (TDZ)**.
+   - The `this` binding reference is established.
+2. **Execution Phase**:
+   - The engine runs code sequentially line-by-line.
+   - Variable assignments are evaluated; attempting to access `let` or `const` before their assignment line throws a `ReferenceError`.
+   - Function calls allocate a new execution context on top of the Call Stack.
 
 Before a scope's code runs, the engine scans it and creates every binding declared in it. This is what "hoisting" describes; nothing is physically moved.
 
@@ -9173,13 +9218,2477 @@ JavaScript offers several shorthand techniques to write code more concisely and 
 
 ---
 
+## 🎓 Masterclasses: Engine Internals, Concurrency & Advanced JavaScript Architecture
+
+The Masterclasses cover how JavaScript engines execute, optimize, and allocate memory for your code, along with advanced language metaprogramming, multithreading primitives, specification protocols, and algorithmic polyfills.
+
+---
+
+### M.1 V8 Engine Architecture: Ignition, TurboFan, Hidden Classes & Inline Caching
+
+Every modern JavaScript engine executes code through a multi-tier pipeline. V8 (powering Chrome, Edge, Node.js, Deno) starts execution instantly using an interpreter and progressively compiles frequently called ("hot") functions into optimized machine code.
+
+```mermaid
+flowchart TD
+    SRC["JavaScript Source (.js)"] --> PARSE["Scanner & Parser (Pre-parser + Full parser)"]
+    PARSE --> AST["Abstract Syntax Tree (AST) + Scope Analysis"]
+    AST --> IGNITION["Ignition: Bytecode Interpreter"]
+    IGNITION -->|"Executes Bytecode"| VEC["Type Feedback Vectors (Runtime profiling)"]
+    IGNITION --> SPARK["Sparkplug: Baseline Compiler (no optimization)"]
+    VEC --> MAGLEV["Maglev: Mid-Tier SSA Compiler"]
+    MAGLEV -->|"Hot function with stable types"| TURBO["TurboFan: Top-Tier Optimizing JIT Compiler"]
+    TURBO --> MACHINE["Optimized Machine Code (x64, ARM64)"]
+    MACHINE -->|"Speculative assumption broken"| DEOPT["Deoptimization (Bailout back to Ignition)"]
+    DEOPT --> IGNITION
+```
+
+#### Microtask Starvation and the Browser Rendering Pipeline
+The event loop executes synchronous code, drains the **microtask queue** completely until empty, and only then proceeds to UI rendering or macrotasks (timers, I/O):
+
+```mermaid
+flowchart LR
+    SYNC["Synchronous Call Stack"] --> MICRO["Drain Microtask Queue completely\n(Promises, queueMicrotask)"]
+    MICRO -->|"Is Microtask Queue empty?"| CHECK{{"Empty?"}}
+    CHECK -->|"No: New microtask spawned"| MICRO
+    CHECK -->|"Yes"| RENDER["Render Pipeline\n(requestAnimationFrame, Style, Layout, Paint)"]
+    RENDER --> MACRO["Run 1 Macrotask\n(setTimeout, setInterval, I/O)"]
+    MACRO --> MICRO
+```
+
+> [!WARNING]
+> **Microtask Starvation**: Because the engine must drain all microtasks before yielding to the rendering pipeline or executing the next macrotask, an infinite or recursive microtask loop will **starve the event loop**, freezing UI repaints and user input events completely:
+>
+> ```javascript
+> // DANGER: Freezes page rendering completely!
+> function starve() {
+>   Promise.resolve().then(starve);
+> }
+> // starve();
+> ```
+
+#### 1. The V8 JIT Compilation Pipeline
+1. **Parser & Pre-Parser**: V8 scans source text. Code not immediately invoked is pre-parsed (syntax verified, but AST is omitted) to save memory. Hot functions undergo full parsing to build an Abstract Syntax Tree (AST).
+2. **Ignition (Bytecode Interpreter)**: Ignition converts the AST into concise bytecode instructions. It uses an accumulator register (`acc`) to minimize memory footprints on mobile and low-memory devices.
+3. **Sparkplug & Maglev**: Sparkplug compiles bytecode into unoptimized machine code without intermediate representations. Maglev sits between Sparkplug and TurboFan, producing SSA (Static Single Assignment) representations quickly for functions called thousands of times.
+4. **TurboFan (Optimizing JIT Compiler)**: Compiles hot code using speculative optimizations based on runtime types recorded in type feedback vectors. It inlines function calls, unrolls loops, eliminates bounds checks, and emits vectorized assembly.
+5. **Deoptimization (Bailout)**: If a speculative assumption fails (e.g., a function compiled for integers receives a string), TurboFan discards the optimized code and bails out back to Ignition bytecode execution.
+
+#### 2. Hidden Classes (Shapes / Maps) and Transition Trees
+In class-based languages (C++, Java), memory offsets for object properties are fixed at compile time. In JavaScript, properties can be added or deleted dynamically. To avoid expensive hash table lookups, V8 introduces **Hidden Classes** (historically called *Maps* or *Shapes*).
+
+Each object holds a hidden class pointer in its header. Properties are stored as contiguous arrays in memory, and the hidden class maps property names to numeric field offsets.
+
+```javascript
+// 1. Both p1 and p2 share the initial empty shape (Shape 0)
+const p1 = {};
+const p2 = {};
+
+// 2. Adding 'x' transitions p1 from Shape 0 -> Shape 1 (offset 0: 'x')
+p1.x = 10;
+
+// 3. Adding 'y' transitions p1 from Shape 1 -> Shape 2 (offset 1: 'y')
+p1.y = 20;
+
+// If p2 adds properties in the EXACT SAME order, it shares the transition tree!
+p2.x = 30; // Shares Shape 1
+p2.y = 40; // Shares Shape 2 (High optimization: shared transition path)
+
+// ANTI-PATTERN: Property Order Mismatch (Shape Pollution)
+const p3 = {};
+p3.y = 100; // Transitions Shape 0 -> Shape 3 (divergent branch!)
+p3.x = 200; // Transitions Shape 3 -> Shape 4 (cannot reuse Shape 2!)
+```
+
+#### 3. Inline Caches (ICs)
+An **Inline Cache** speeds up property access (`o.x`) by caching the hidden class and the memory offset at the call site:
+
+* **Monomorphic** (Fastest): The call site has only observed **one** shape. The engine emits direct machine code to read the offset without a hash lookup (~1 CPU cycle).
+* **Polymorphic** (Moderate): The call site has observed **2 to 4** distinct shapes. V8 checks a small inline switch table of known shapes.
+* **Megamorphic** (Slowest): The call site has observed **5+** different shapes. The engine abandons inline caching and falls back to a global dictionary lookup table (a major performance cliff).
+
+```javascript
+// Function with a Monomorphic call site
+function getX(point) {
+  return point.x; // V8 caches point's shape and directly reads offset 0
+}
+
+const ptA = { x: 1, y: 2 };
+const ptB = { x: 5, y: 6 };
+
+for (let i = 0; i < 100000; i++) {
+  getX(ptA);
+  getX(ptB); // Stays Monomorphic: both share the exact same hidden class!
+}
+```
+
+#### 4. Deoptimization Triggers
+Code deoptimizes when runtime assumptions are broken:
+1. **Type Mutation**: Passing arguments of varying types (e.g. calling `add(1, 2)` then `add('1', '2')`).
+2. **Array Element Kind Degradation**: Storing a float or string in an array initialized with pure integers transitions V8 from `PACKED_SMI` (Small Integer) to `PACKED_DOUBLE` or `HOLEY_ELEMENTS`. This transition is **one-way**; arrays never re-specialize back to packed smis.
+3. **Deleting Properties**: Deleting properties (`delete obj.x`) alters the hidden class and switches the object into slow dictionary mode. Set property to `null` or `undefined` instead of using `delete`.
+
+---
+
+### M.2 V8 Memory Management: Generational GC, Scavenger & Heap Profiling
+
+JavaScript is garbage-collected. V8 allocates memory on the heap and manages it through **Generational Garbage Collection**, separating objects by lifetime.
+
+```mermaid
+flowchart LR
+    subgraph V8_HEAP["V8 Heap Architecture"]
+        direction TB
+        subgraph NEW_SPACE["New Space (Young Generation: 1-64 MB)"]
+            NURSERY["Nursery (New allocations)"]
+            INTERMEDIATE["Intermediate (Survived 1 Minor GC)"]
+        end
+        subgraph OLD_SPACE["Old Space (Long-Lived Objects)"]
+            OLD_PTR["Old Pointer Space (Objects referencing objects)"]
+            OLD_DATA["Old Data Space (Raw strings, byte vectors)"]
+        end
+        LARGE["Large Object Space (Bypasses compaction)"]
+        CODE["Code Space (JIT compiled instructions)"]
+    end
+    NURSERY -->|"Survived 1st Scavenge"| INTERMEDIATE
+    INTERMEDIATE -->|"Survived 2nd Scavenge (Promoted)"| OLD_PTR
+```
+
+#### 1. The Young Generation (Minor GC / Scavenger)
+The *Weak Generational Hypothesis* states that most objects die shortly after creation. V8's New Space is divided into two semi-spaces: **From-Space** and **To-Space** (using Cheney's copying algorithm):
+1. New objects allocate in From-Space.
+2. When From-Space fills, Minor GC triggers.
+3. Active, reachable objects are copied to To-Space; unreferenced objects are abandoned (freed instantaneously).
+4. The roles of From-Space and To-Space are swapped.
+5. If an object survives two Scavenge passes, it is **promoted** to the Old Space.
+
+#### 2. The Old Generation (Major GC / Mark-Sweep-Compact)
+Old Space holds long-lived survivors, singletons, and large closures. It runs a full Mark-Sweep-Compact collector:
+1. **Tri-Color Marking**:
+   * **White**: Unvisited objects (initially all objects).
+   * **Grey**: Visited objects whose outgoing references have not yet been scanned.
+   * **Black**: Reachable objects whose references have all been visited.
+2. **Concurrent & Incremental Marking**: Marking runs in small time slices interleaved with JavaScript execution and worker background threads, preventing long UI freeze times ("stop-the-world").
+3. **Sweeping**: Traverses memory and adds dead white memory blocks to free lists.
+4. **Compaction**: Sliding compaction shifts surviving black objects to contiguous memory addresses to eradicate external memory fragmentation.
+
+#### 3. Diagnosing Memory Leaks & Heap Profiling
+A memory leak in JavaScript occurs when unintended references keep dead objects rooted in the GC root graph.
+
+```javascript
+// LEAK PATTERN: Closure Scope Retention
+let leakedHolder;
+function createLeak() {
+  const largeArray = new Array(1_000_000).fill('leak_payload');
+  
+  // Both inner functions share the exact same enclosing Lexical Environment!
+  leakedHolder = function keepAlive() {
+    // Even if keepAlive does not mention largeArray, 
+    // some engines retain the whole lexical record if a sibling closure references it!
+    return 'active';
+  };
+
+  return function unused() {
+    return largeArray[0];
+  };
+}
+
+// FIX: Always nullify references when lifecycle completes
+function safeScope() {
+  let largeArray = new Array(1_000_000).fill('payload');
+  const result = largeArray[0];
+  largeArray = null; // Explicitly break GC reference
+  return result;
+}
+```
+
+**Heap Snapshot Metrics**:
+* **Shallow Size**: The byte size directly consumed by the object itself (its own properties, header, and primitive values).
+* **Retained Size**: The total memory freed if this object is garbage collected (its shallow size plus the size of all child objects that are only reachable through it).
+
+---
+
+### M.3 Metaprogramming: Proxies, Reflect, WeakRef & Decorators
+
+Metaprogramming allows programs to inspect, intercept, and modify standard language operations.
+
+#### 1. Proxy and Reflect
+A `Proxy` wraps a target object, intercepting low-level operations (`[[Get]]`, `[[Set]]`, `[[HasProperty]]`, `[[Call]]`). `Reflect` provides the matching default implementation with proper receiver forwarding.
+
+```javascript
+const user = { firstName: 'Ada', lastName: 'Lovelace', #privateKey: 42 };
+
+const handler = {
+  // Trap property reads
+  get(target, prop, receiver) {
+    if (prop === 'fullName') {
+      return `${Reflect.get(target, 'firstName', receiver)} ${Reflect.get(target, 'lastName', receiver)}`;
+    }
+    // Always use Reflect to ensure 'this' (receiver) binding remains correct in getters
+    return Reflect.get(target, prop, receiver);
+  },
+
+  // Trap property writes
+  set(target, prop, value, receiver) {
+    if (prop === 'age') {
+      if (typeof value !== 'number' || value <= 0) {
+        throw new TypeError('Age must be a positive number');
+      }
+    }
+    return Reflect.set(target, prop, value, receiver); // returns boolean (true = success)
+  },
+
+  // Trap the 'in' operator
+  has(target, prop) {
+    if (prop.startsWith('_')) return false; // Hide private-prefixed props from 'prop in obj'
+    return Reflect.has(target, prop);
+  },
+
+  // Trap property deletion
+  deleteProperty(target, prop) {
+    if (prop === 'id') throw new Error('Cannot delete id property');
+    return Reflect.deleteProperty(target, prop);
+  }
+};
+
+const proxyUser = new Proxy(user, handler);
+console.log(proxyUser.fullName); // "Ada Lovelace"
+proxyUser.age = 36;              // Validated and set
+// proxyUser.age = -5;           // Throws TypeError: Age must be a positive number
+```
+
+**Revocable Proxies**: Disable access dynamically when a session ends:
+```javascript
+const { proxy, revoke } = Proxy.revocable({ secret: 'classified' }, {});
+console.log(proxy.secret); // "classified"
+revoke(); // Shuts down access immediately
+// console.log(proxy.secret); // TypeError: Cannot perform 'get' on a proxy that has been revoked
+```
+
+#### 2. WeakRef and FinalizationRegistry
+* `WeakRef`: Holds a weak reference to an object, allowing the garbage collector to reclaim it.
+* `FinalizationRegistry`: Registers a callback triggered when an object has been reclaimed.
+
+```javascript
+const registry = new FinalizationRegistry((heldValue) => {
+  console.log(`Object with identifier "${heldValue}" was garbage collected.`);
+});
+
+let cacheTarget = { id: 'session_101', data: 'heavy_payload' };
+const weakRef = new WeakRef(cacheTarget);
+registry.register(cacheTarget, 'session_101');
+
+// Reading from WeakRef
+const obj = weakRef.deref();
+if (obj) {
+  console.log('Value still in memory:', obj.data);
+} else {
+  console.log('Object was collected by GC.');
+}
+
+// Breaking hard reference
+cacheTarget = null;
+```
+
+#### 3. TC39 Decorators (Stage 3 Standard)
+Decorators wrap and modify classes, methods, or accessors at declaration time:
+
+```javascript
+// Method timing decorator
+function logged(value, context) {
+  const { kind, name } = context;
+  if (kind === 'method') {
+    return function (...args) {
+      console.log(`[CALL] ${name} invoked with arguments: ${JSON.stringify(args)}`);
+      const result = value.apply(this, args);
+      console.log(`[RETURN] ${name} -> ${result}`);
+      return result;
+    };
+  }
+}
+
+class MathService {
+  @logged
+  add(a, b) {
+    return a + b;
+  }
+}
+```
+
+---
+
+### M.4 Binary Data & Memory Layout: ArrayBuffer, TypedArrays & DataView
+
+JavaScript handles raw binary bytes directly through the Buffer and TypedArray specifications.
+
+```mermaid
+flowchart TD
+    BUF["ArrayBuffer (Contiguous raw block of memory: e.g. 16 bytes)"]
+    BUF --> T1["Uint8Array: 16 elements (1 byte each)"]
+    BUF --> T2["Int32Array: 4 elements (4 bytes each)"]
+    BUF --> T3["Float64Array: 2 elements (8 bytes each)"]
+    BUF --> DV["DataView: Custom endianness & mixed types byte-by-byte"]
+```
+
+#### 1. ArrayBuffer, TypedArrays, and DataView
+* **ArrayBuffer**: A fixed-length raw binary memory allocation. Cannot be read or mutated directly.
+* **TypedArrays**: Typed views over an ArrayBuffer (`Uint8Array`, `Int32Array`, `Float64Array`, `BigInt64Array`, `Uint8ClampedArray`).
+* **DataView**: Heterogeneous accessor supporting explicit Little-Endian and Big-Endian byte parsing.
+
+```javascript
+// 1. Allocate a raw binary buffer of 8 bytes
+const buffer = new ArrayBuffer(8);
+
+// 2. Create a typed view: 32-bit signed integers (4 bytes each -> 2 slots)
+const int32View = new Int32Array(buffer);
+int32View[0] = 42;
+int32View[1] = 1337;
+
+// 3. Inspect through an 8-bit unsigned view over the EXACT SAME memory
+const uint8View = new Uint8Array(buffer);
+console.log(uint8View[0]); // 42 (Little-endian low byte)
+
+// 4. DataView for Network / File binary protocol parsing
+const view = new DataView(buffer);
+// Write 16-bit unsigned integer at byte offset 0 in Big-Endian format
+view.setUint16(0, 0x1234, false); // false = Big-Endian
+console.log(view.getUint8(0).toString(16)); // "12"
+console.log(view.getUint8(1).toString(16)); // "34"
+```
+
+#### 2. V8 Elements Kinds (Packed vs Holey Arrays)
+V8 optimizes arrays based on the data types they hold:
+* `PACKED_SMI_ELEMENTS`: Contiguous small integers only (fastest array representation).
+* `PACKED_DOUBLE_ELEMENTS`: Contiguous floating-point numbers.
+* `PACKED_ELEMENTS`: Mixed objects, strings, functions.
+* `HOLEY_*`: Arrays containing empty/uninitialized holes (e.g. `[1, , 3]`). Every hole requires V8 to walk up the prototype chain to check if `Array.prototype` defines that index!
+
+```javascript
+// Fastest: PACKED_SMI
+const packed = [1, 2, 3]; 
+
+// Degradation: HOLEY (permanent performance penalty)
+const holey = [1, 2, 3];
+holey[100] = 99; // Creates 97 empty holes!
+```
+
+#### 3. Array.fromAsync (ES2024)
+Converts async iterables or streams into arrays without manual loops:
+```javascript
+async function* asyncGenerator() {
+  yield 10;
+  yield 20;
+  yield 30;
+}
+
+const items = await Array.fromAsync(asyncGenerator());
+console.log(items); // [10, 20, 30]
+```
+
+---
+
+### M.5 Advanced Concurrency: Web Workers, SharedArrayBuffer & Atomics
+
+JavaScript runs on a single thread per execution isolate. Concurrency is achieved across isolates using Workers, and true shared memory is unlocked with `SharedArrayBuffer` and `Atomics`.
+
+#### 1. Transferable Objects (Zero-Copy)
+Standard `worker.postMessage(data)` deep-clones memory via structured cloning. Transferable objects transfer ownership of the underlying ArrayBuffer without copying:
+
+```javascript
+// In main thread:
+const u8 = new Uint8Array(1024 * 1024 * 32); // 32MB buffer
+// Zero-copy transfer: pass buffer in the transfer array (2nd argument)
+worker.postMessage({ buffer: u8.buffer }, [u8.buffer]);
+console.log(u8.byteLength); // 0 (detached! Memory transferred instantly to worker)
+```
+
+#### OffscreenCanvas: Decoupled Graphics Rendering
+`OffscreenCanvas` allows canvas rendering (2D or WebGL) to be offloaded from the main DOM thread to a dedicated Web Worker via transferable ownership, ensuring complex animations do not block UI interactions:
+
+```javascript
+// In main thread:
+const canvas = document.querySelector('canvas');
+if ('transferControlToOffscreen' in canvas) {
+  const offscreen = canvas.transferControlToOffscreen();
+  worker.postMessage({ canvas: offscreen }, [offscreen]); // Transferred to worker
+}
+
+// In worker thread:
+self.onmessage = function(e) {
+  const canvas = e.data.canvas;
+  const ctx = canvas.getContext('2d');
+  ctx.fillStyle = 'royalblue';
+  ctx.fillRect(0, 0, 300, 150);
+};
+```
+
+#### 2. SharedArrayBuffer and Atomics
+`SharedArrayBuffer` maps memory simultaneously into multiple worker threads. The `Atomics` object provides thread-safe synchronization to prevent race conditions:
+
+```javascript
+// Main thread: Allocate 4 bytes shared across workers
+const sharedBuffer = new SharedArrayBuffer(4);
+const sharedInt32 = new Int32Array(sharedBuffer);
+
+// Thread-safe operations:
+Atomics.store(sharedInt32, 0, 100);
+
+// Thread-safe addition (atomic read-modify-write)
+const oldVal = Atomics.add(sharedInt32, 0, 5); // Index 0 is now 105
+console.log(`Old: ${oldVal}, New: ${Atomics.load(sharedInt32, 0)}`);
+
+// Atomics.compareExchange: Compare and Swap (CAS)
+// If index 0 is currently 105, set to 200. Returns previous value.
+const prev = Atomics.compareExchange(sharedInt32, 0, 105, 200);
+console.log(prev === 105); // true (Swap successful!)
+
+// Thread synchronization (Worker thread):
+// Atomics.wait(typedArray, index, expectedValue) -> sleeps thread until notified
+// Atomics.notify(typedArray, index, count)        -> wakes sleeping threads
+```
+
+---
+
+### M.6 Specification Protocols: Well-Known Symbols, Property Enumeration & Coercion
+
+#### 1. Property Enumeration Order (Deterministic since ES2015)
+When iterating an object using `Reflect.ownKeys()`, `Object.keys()`, or `for...in`, properties follow strict ordering rules:
+1. **Integer indices** in ascending numerical order (`"0"`, `"1"`, `"2"`...).
+2. **String keys** in chronological insertion order.
+3. **Symbol keys** in chronological insertion order.
+
+```javascript
+const obj = {};
+obj["b"] = 1;
+obj[2] = 2;
+obj[0] = 3;
+obj["a"] = 4;
+obj[Symbol.for("id")] = 5;
+
+console.log(Reflect.ownKeys(obj)); 
+// Output: ['0', '2', 'b', 'a', Symbol(id)]
+```
+
+#### 2. Equality Algorithms Matrix
+
+| Algorithm | Method / Operator | `NaN === NaN` | `+0 === -0` | Coercion |
+| :--- | :--- | :---: | :---: | :---: |
+| **Abstract Equality** | `==` | `false` | `true` | Yes (Implicit) |
+| **Strict Equality** | `===` | `false` | `true` | No |
+| **SameValueZero** | `Map`, `Set`, `Array.includes` | `true` | `true` | No |
+| **SameValue** | `Object.is()` | `true` | `false` | No |
+
+#### 3. Well-Known Symbols & Coercion Protocols
+* **`Symbol.toPrimitive`**: Overrides default object coercion for `"number"`, `"string"`, and `"default"`.
+* **`Symbol.hasInstance`**: Customizes `instanceof` behavior.
+* **`Symbol.species`**: Specifies the constructor used for derived objects (e.g. `map()` returning subclasses).
+* **`Symbol.toStringTag`**: Customizes output of `Object.prototype.toString.call(obj)`.
+
+```javascript
+class Money {
+  constructor(amount, currency) {
+    this.amount = amount;
+    this.currency = currency;
+  }
+
+  [Symbol.toPrimitive](hint) {
+    if (hint === 'number') return this.amount;
+    if (hint === 'string') return `${this.amount} ${this.currency}`;
+    return `${this.amount}`; // default hint
+  }
+
+  static [Symbol.hasInstance](instance) {
+    return instance && typeof instance.amount === 'number';
+  }
+
+  get [Symbol.toStringTag]() {
+    return 'Money';
+  }
+}
+
+const price = new Money(500, 'USD');
+console.log(+price);                // 500 (number hint)
+console.log(`Total: ${price}`);     // "Total: 500 USD" (string hint)
+console.log({ amount: 10 } instanceof Money); // true (custom hasInstance)
+console.log(Object.prototype.toString.call(price)); // "[object Money]"
+```
+
+---
+
+### M.7 Modern Iteration: Iterator Helpers, Async Generators & Reactive Streams
+
+#### 1. Iterator Helpers (ES2025)
+Standardized methods directly on iterator prototypes to transform, filter, and consume lazy sequences without intermediate array allocations:
+
+```javascript
+function* fibonacci() {
+  let [a, b] = [0, 1];
+  while (true) {
+    yield a;
+    [a, b] = [b, a + b];
+  }
+}
+
+// Lazy iterator pipeline: take 8 numbers, filter evens, square them, collect to array
+const result = fibonacci()
+  .take(10)
+  .filter(n => n % 2 === 0)
+  .map(n => n ** 2)
+  .toArray();
+
+console.log(result); // [0, 4, 64, 2116] (Processed on the fly with no buffer overhead)
+```
+
+#### 2. Async Generators and Backpressure
+Async generators yield promises, enabling backpressure-aware streams:
+
+```javascript
+async function* paginatedFetcher(endpoint) {
+  let page = 1;
+  while (true) {
+    const res = await fetch(`${endpoint}?page=${page}`);
+    const data = await res.json();
+    if (data.items.length === 0) break;
+    yield data.items;
+    page++;
+  }
+}
+
+// Consume asynchronously:
+// for await (const pageItems of paginatedFetcher('/api/logs')) {
+//   processLogs(pageItems);
+// }
+```
+
+#### 3. Explicit Resource Management (ES2025/ES2026 `using` Keyword)
+Automatic, deterministic disposal of resources (file handles, sockets, database locks):
+
+```javascript
+// Disposable protocol with Symbol.dispose
+const getFileHandle = (path) => ({
+  path,
+  read() { return "file_contents"; },
+  [Symbol.dispose]() {
+    console.log(`File handle for ${path} automatically closed!`);
+  }
+});
+
+{
+  using file = getFileHandle("/var/log/app.log");
+  console.log(file.read());
+} // -> [Symbol.dispose] executes immediately upon block exit (RAII)
+```
+
+---
+
+### M.8 Advanced Regular Expressions: Lookarounds, Unicode Sets & ReDoS Prevention
+
+#### Greedy vs. Lazy (Reluctant) Matching
+By default, quantifiers (`*`, `+`, `?`, `{n,m}`) are **greedy**: they match as many characters as possible before backtracking. Adding a `?` turns them **lazy**, matching the minimum necessary characters:
+
+```javascript
+const html = "<div>First</div><div>Second</div>";
+
+// Greedy matching: consumes everything until the LAST </div>
+const greedy = /<div>.*<\/div>/;
+console.log(html.match(greedy)[0]); 
+// Output: "<div>First</div><div>Second</div>"
+
+// Lazy (reluctant) matching: stops at the FIRST </div>
+const lazy = /<div>.*?<\/div>/;
+console.log(html.match(lazy)[0]); 
+// Output: "<div>First</div>"
+```
+
+#### 1. Lookahead and Lookbehind Assertions
+* **Positive Lookahead** `(?=...)`: Matches if followed by pattern (without including it in match).
+* **Negative Lookahead** `(?!...)`: Matches if NOT followed by pattern.
+* **Positive Lookbehind** `(?<=...)`: Matches if preceded by pattern.
+* **Negative Lookbehind** `(?<!...)`: Matches if NOT preceded by pattern.
+
+```javascript
+// 1. Password validation with Lookahead: at least 1 digit, 1 uppercase, min 8 chars
+const passwordRegex = /^(?=.*[0-9])(?=.*[A-Z]).{8,}$/;
+console.log(passwordRegex.test("Secret99")); // true
+
+// 2. Lookbehind: Extract price after currency symbol
+const priceRegex = /(?<=\$)\d+(\.\d{2})?/;
+console.log("Price is $49.99".match(priceRegex)[0]); // "49.99"
+```
+
+#### 2. Named Groups, Backreferences & the `v` Flag
+```javascript
+// Named capture groups and backreference
+const datePattern = /(?<year>\d{4})-(?<month>\d{2})-(?<day>\d{2})/;
+const match = datePattern.exec("2026-11-04");
+console.log(match.groups.year); // "2026"
+
+// Unicode Sets (v flag - ES2024)
+// Matches Greek letters OR numbers, excluding specific characters
+const setRegex = /[[\p{Script=Greek}]--[αβγ]]/v;
+```
+
+#### 3. Catastrophic Backtracking and ReDoS Defense
+A Regular Expression Denial of Service (ReDoS) occurs when an engine tests an exponential number of permutations against ambiguous nested quantifiers.
+
+```javascript
+// VULNERABLE PATTERN: (a+)+$ on non-matching long input
+// const badRegex = /^(a+)+$/;
+// badRegex.test("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaX"); // Freezes event loop for seconds!
+
+// SAFE FIX: Atomic matching / Possessive simulation or refactoring
+const safeRegex = /^a+$/; // Linear O(N) evaluation
+```
+
+---
+
+### M.9 Internationalization (Intl): Collator, PluralRules & UTF-16 Unicode Surrogates
+
+#### 1. High-Performance Sorting with `Intl.Collator`
+Using `strA.localeCompare(strB)` inside `array.sort()` recreates collation state repeatedly. `Intl.Collator` creates the comparison table once, running up to **$10\times$ faster**:
+
+```javascript
+const words = ["Zürich", "apple", "Äpfel", "banana"];
+
+// Fast, locale-aware natural sort
+const collator = new Intl.Collator('de', { sensitivity: 'base', numeric: true });
+words.sort(collator.compare);
+console.log(words); // ["Äpfel", "apple", "banana", "Zürich"]
+```
+
+#### 2. `Intl.PluralRules` and `Intl.ListFormat`
+```javascript
+// 1. Plural Rules (handles zero, one, few, many, other across languages)
+const enPr = new Intl.PluralRules('en', { type: 'ordinal' });
+console.log(`1${enPr.select(1)}`); // "1st"
+console.log(`2${enPr.select(2)}`); // "2nd"
+
+// 2. Localized List Formatting
+const listFormatter = new Intl.ListFormat('en', { style: 'long', type: 'conjunction' });
+console.log(listFormatter.format(['Ada', 'Grace', 'Margaret'])); 
+// "Ada, Grace, and Margaret"
+```
+
+#### 3. Unicode Code Points vs UTF-16 Surrogate Pairs
+JavaScript strings are indexed by **16-bit code units**, not Unicode characters. Characters outside the Basic Multilingual Plane (like emojis `𝒳`, `🚀`) require **two surrogate code units**:
+
+```javascript
+const rocket = "🚀"; // Code point U+1F680
+console.log(rocket.length);           // 2 (Two 16-bit UTF-16 code units: 0xD83D, 0xDE80)
+console.log(rocket.charCodeAt(0));    // 55357 (High surrogate)
+console.log(rocket.codePointAt(0));   // 128640 (Full Unicode Code Point)
+
+// Iterate by true code points rather than UTF-16 code units
+for (const char of rocket) {
+  console.log(char); // "🚀" (Iterator is code-point aware)
+}
+```
+
+---
+
 ## 7. Stage 7: Staff JavaScript Engineer Interview Handbook & Cheatsheet
 
 This stage collects interview preparation material. The coding problem bank below solves common algorithm questions in plain JavaScript, mostly without built-in helpers, which is how many interviewers ask them. Write each solution yourself first, then compare.
 
-<!-- Sections 7.1-7.5 (Q&A groups and the staff cheatsheet) are added in a later revision. -->
+### 7.1 Questions for Freshers
+
+#### 1. What are the different data types present in javascript?
+
+**Answer:**  
+JavaScript has two categories of data types: Primitive and Non-Primitive.
+- **Primitive types:** String, Number, BigInt, Boolean, Undefined, Null, Symbol.
+- **Non-primitive types:** Object (including Arrays and Functions).
+
+**Code Example:**
+```javascript
+// Primitives
+var str = "Hello";                           // String
+var num = 42;                                // Number
+var bigIntVal = 1234567890123456789012345n;  // BigInt
+var bool = true;                             // Boolean
+var undef;                                   // undefined
+var empty = null;                            // null (typeof returns "object")
+var sym = Symbol("unique");                  // Symbol
+
+// Non-Primitives
+var obj = { name: "Vivek", age: 25 };        // Object
+var arr = [1, 2, 3];                         // Array
+```
+
+---
+
+#### 2. Explain Hoisting in javascript.
+
+**Answer:**  
+Hoisting is JavaScript's default behavior where variable and function declarations are moved to the top of their scope before execution. Only declarations are hoisted, not initializations.
+
+**Code Example:**
+```javascript
+console.log(hoistedVar); // Output: undefined
+var hoistedVar = 10;
+
+hoistedFunc(); // Output: "Hello from hoisted function!"
+function hoistedFunc() {
+  console.log("Hello from hoisted function!");
+}
+```
+
+---
+
+#### 3. Why do we use the word "debugger" in javascript?
+
+**Answer:**  
+The debugger keyword sets a programmatic breakpoint. When browser developer tools are open, execution pauses at this statement, allowing step-by-step debugging.
+
+**Code Example:**
+```javascript
+function calculateTotal(price, tax) {
+  var total = price + tax;
+  debugger; // Execution pauses here in DevTools
+  return total;
+}
+calculateTotal(100, 18);
+```
+
+---
+
+#### 4. Difference between "==" and "===" operators.
+
+**Answer:**  
+- `==` (Loose/Abstract Equality): Compares values after performing implicit type coercion.
+- `===` (Strict Equality): Compares both value and data type without coercion.
+
+**Code Example:**
+```javascript
+var x = 2;
+var y = "2";
+
+console.log(x == y);  // Output: true  (string "2" is coerced to number 2)
+console.log(x === y); // Output: false (number !== string)
+```
+
+---
+
+#### 5. Difference between var and let keyword in javascript.
+
+**Answer:**  
+- `var`: Function-scoped, hoisted to the top as undefined, can be redeclared.
+- `let`: Block-scoped, hoisted into the Temporal Dead Zone (TDZ), cannot be redeclared in the same scope.
+
+**Code Example:**
+```javascript
+function testScope() {
+  if (true) {
+    var a = 1;
+    let b = 2;
+  }
+  console.log(a); // Output: 1 (function scope)
+  // console.log(b); // ReferenceError: b is not defined (block scope)
+}
+testScope();
+```
+
+---
+
+#### 6. Explain Implicit Type Coercion in javascript.
+
+**Answer:**  
+The automatic conversion of a value from one data type to another during operations.
+
+**Code Example:**
+```javascript
+// String Coercion (+)
+console.log("3" + 3);       // Output: "33"
+
+// Numeric Coercion (-, *, /)
+console.log("24" - 4);      // Output: 20
+
+// Boolean Coercion
+var val = 0;
+if (val) {
+  console.log("Truthy");
+} else {
+  console.log("Falsy");     // Output: "Falsy" (0 is falsy)
+}
+```
+
+---
+
+#### 7. Is javascript a statically typed or a dynamically typed language?
+
+**Answer:**  
+JavaScript is dynamically typed. Data types are bound to values rather than variables, and a variable can change its type at runtime.
+
+**Code Example:**
+```javascript
+var dynamicVar = 42;         // Initially a number
+console.log(typeof dynamicVar); // Output: "number"
+
+dynamicVar = "Hello World";  // Reassigned to a string
+console.log(typeof dynamicVar); // Output: "string"
+```
+
+---
+
+#### 8. What is NaN property in JavaScript?
+
+**Answer:**  
+NaN stands for "Not-a-Number", representing an illegal or invalid numeric result. Its typeof is "number". Use `isNaN()` to verify.
+
+**Code Example:**
+```javascript
+var result = "Hello" / 2;
+console.log(result);        // Output: NaN
+console.log(typeof result); // Output: "number"
+console.log(isNaN(result)); // Output: true
+```
+
+---
+
+#### 9. Explain passed by value and passed by reference.
+
+**Answer:**  
+- Primitive data types are passed by value: assigning creates an independent copy.
+- Non-primitive data types (objects/arrays) are passed by reference: assigning copies the memory address.
+
+**Code Example:**
+```javascript
+// Pass by Value (Primitive)
+var a = 10;
+var b = a;
+b = 20;
+console.log(a); // Output: 10 (unchanged)
+
+// Pass by Reference (Non-Primitive)
+var obj1 = { name: "Vivek" };
+var obj2 = obj1;
+obj2.name = "Akki";
+console.log(obj1.name); // Output: "Akki" (mutated via obj2)
+```
+
+---
+
+#### 10. What is an Immediately Invoked Function in JavaScript?
+
+**Answer:**  
+An IIFE is a function expression that executes immediately after definition.
+
+**Code Example:**
+```javascript
+(function() {
+  var privateMessage = "Executed immediately!";
+  console.log(privateMessage); // Output: "Executed immediately!"
+})();
+// console.log(privateMessage); // ReferenceError
+```
+
+---
+
+#### 11. What do you mean by strict mode in javascript and characteristics of javascript strict-mode?
+
+**Answer:**  
+Strict mode (`"use strict";`) enforces stricter parsing and error handling, preventing accidental global variables and duplicate parameter names.
+
+**Code Example:**
+```javascript
+"use strict";
+
+// x = 10; // ReferenceError: x is not defined (prevents accidental global)
+
+function duplicateParams(a, a) { // SyntaxError: Duplicate parameter name not allowed
+  return a;
+}
+```
+
+---
+
+#### 12. Explain Higher Order Functions in javascript.
+
+**Answer:**  
+A function that accepts another function as an argument, returns a function, or both.
+
+**Code Example:**
+```javascript
+// Accepts function as argument
+function calculate(a, b, operation) {
+  return operation(a, b);
+}
+var add = (x, y) => x + y;
+console.log(calculate(5, 3, add)); // Output: 8
+
+// Returns a function
+function multiplier(factor) {
+  return function(number) {
+    return number * factor;
+  };
+}
+var double = multiplier(2);
+console.log(double(10)); // Output: 20
+```
+
+---
+
+#### 13. Explain "this" keyword.
+
+**Answer:**  
+The `this` keyword refers to the object currently executing or invoking the function.
+
+**Code Example:**
+```javascript
+var person = {
+  name: "Vivek",
+  greet: function() {
+    console.log(this.name);
+  }
+};
+person.greet(); // Output: "Vivek" (invoked by person)
+
+var standalone = person.greet;
+standalone();   // Output: undefined (invoked globally, this = window)
+```
+
+---
+
+#### 14. What do you mean by Self Invoking Functions?
+
+**Answer:**  
+An anonymous function expression that runs automatically when defined without needing an explicit name invocation.
+
+**Code Example:**
+```javascript
+(function() {
+  console.log("Self-invoking expression triggered!");
+})();
+```
+
+---
+
+#### 15. Explain call(), apply() and, bind() methods.
+
+**Answer:**  
+Methods used to control the `this` binding explicitly:
+- `call()`: Invokes function immediately with comma-separated arguments.
+- `apply()`: Invokes function immediately with arguments in an array.
+- `bind()`: Returns a new function with `this` permanently attached.
+
+**Code Example:**
+```javascript
+function showDetails(city, country) {
+  console.log(this.name + " lives in " + city + ", " + country);
+}
+
+var user = { name: "Sandy" };
+
+showDetails.call(user, "Mumbai", "India");        // call
+showDetails.apply(user, ["Mumbai", "India"]);     // apply
+
+var boundFunc = showDetails.bind(user, "Delhi", "India"); // bind
+boundFunc();                                      // Invoked later
+```
+
+---
+
+#### 16. What is the difference between exec () and test () methods in javascript?
+
+**Answer:**  
+Both are RegExp methods: `test()` returns a boolean; `exec()` returns an array of matched details or null.
+
+**Code Example:**
+```javascript
+var pattern = /script/i;
+var str = "JavaScript";
+
+console.log(pattern.test(str)); // Output: true
+console.log(pattern.exec(str)); // Output: [ 'Script', index: 4, input: 'JavaScript', ... ]
+```
+
+---
+
+#### 17. What is currying in JavaScript?
+
+**Answer:**  
+A pattern where a function of multiple arguments `f(a, b)` is rewritten into nested functions taking one argument at a time: `f(a)(b)`.
+
+**Code Example:**
+```javascript
+function multiply(a) {
+  return function(b) {
+    return a * b;
+  };
+}
+console.log(multiply(4)(3)); // Output: 12
+```
+
+---
+
+#### 18. What are some advantages of using External JavaScript?
+
+**Answer:**  
+Separates code from markup, allows sharing/reusing code across multiple HTML pages, and enables browser caching for faster loads.
+
+**Code Example (HTML):**
+```html
+<!-- External file script.js linked into HTML -->
+<!DOCTYPE html>
+<html>
+  <head>
+    <script src="main.js" defer></script>
+  </head>
+  <body>
+    <h1>Welcome</h1>
+  </body>
+</html>
+```
+
+---
+
+#### 19. Explain Scope and Scope Chain in javascript.
+
+**Answer:**  
+Scope defines accessibility of identifiers (Global, Function, Block). Scope Chain searches outward from local to global until an identifier is found.
+
+**Code Example:**
+```javascript
+var globalVal = "global";
+
+function outer() {
+  var outerVal = "outer";
+
+  function inner() {
+    var innerVal = "inner";
+    console.log(innerVal); // Local
+    console.log(outerVal); // Found in parent scope
+    console.log(globalVal);// Found in global scope
+  }
+  inner();
+}
+outer();
+```
+
+---
+
+#### 20. Explain Closures in JavaScript.
+
+**Answer:**  
+A closure occurs when an inner function remembers and accesses variables from its outer lexical environment even after the outer function has finished executing.
+
+**Code Example:**
+```javascript
+function createCounter() {
+  var count = 0;
+  return function() {
+    count++;
+    return count;
+  };
+}
+
+var counter = createCounter();
+console.log(counter()); // Output: 1
+console.log(counter()); // Output: 2 (retains state of 'count')
+```
+
+---
+
+#### 21. Mention some advantages of javascript.
+
+**Answer:**  
+- Fast client-side execution.
+- Can run full-stack using Node.js.
+- Rich ecosystem and frameworks.
+
+**Code Example (Full-stack JS):**
+```javascript
+// Client-side:
+// document.getElementById("btn").addEventListener("click", () => alert("Clicked!"));
+
+// Server-side (Node.js):
+// const http = require('http');
+// http.createServer((req, res) => res.end("Hello Server")).listen(3000);
+```
+
+---
+
+#### 22. What are object prototypes?
+
+**Answer:**  
+Prototypes are blueprints that allow JavaScript objects to inherit properties and methods from other objects via a prototype chain.
+
+**Code Example:**
+```javascript
+function Person(name) {
+  this.name = name;
+}
+Person.prototype.greet = function() {
+  console.log("Hello, I am " + this.name);
+};
+
+var p1 = new Person("Vivek");
+p1.greet(); // Output: "Hello, I am Vivek" (resolved via Person.prototype)
+```
+
+---
+
+#### 23. What are callbacks?
+
+**Answer:**  
+A callback is a function passed as an argument to another function, executed when a specific task completes.
+
+**Code Example:**
+```javascript
+function fetchData(callback) {
+  setTimeout(() => {
+    callback("Data loaded successfully");
+  }, 1000);
+}
+
+fetchData(function(result) {
+  console.log(result); // Output: "Data loaded successfully"
+});
+```
+
+---
+
+#### 24. What are the types of errors in javascript?
+
+**Answer:**  
+- Syntax Errors: Mistyped code that prevents parsing/compilation.
+- Logical Errors: Valid code that executes without crashing but yields incorrect results.
+
+**Code Example:**
+```javascript
+// Syntax Error:
+// console.log("Hello; // SyntaxError: Invalid or unexpected token
+
+// Logical Error:
+function isAdult(age) {
+  return age > 18; // Logic bug: misses age === 18
+}
+console.log(isAdult(18)); // Output: false (expected true)
+```
+
+---
+
+#### 25. What is memoization?
+
+**Answer:**  
+An optimization technique that caches previous function outputs based on input arguments to avoid redundant computations.
+
+**Code Example:**
+```javascript
+function memoizedAdd() {
+  var cache = {};
+  return function(num) {
+    if (num in cache) {
+      console.log("From cache:");
+      return cache[num];
+    }
+    console.log("Calculated:");
+    cache[num] = num + 256;
+    return cache[num];
+  };
+}
+
+var add = memoizedAdd();
+console.log(add(10)); // Calculated: 266
+console.log(add(10)); // From cache: 266
+```
+
+---
+
+#### 26. What is recursion in a programming language?
+
+**Answer:**  
+A technique where a function calls itself to solve smaller instances of the problem until it reaches a base condition.
+
+**Code Example:**
+```javascript
+function factorial(n) {
+  if (n <= 1) return 1; // Base case
+  return n * factorial(n - 1); // Recursive call
+}
+console.log(factorial(4)); // Output: 24
+```
+
+---
+
+#### 27. What is the use of a constructor function in javascript?
+
+**Answer:**  
+Used with the `new` keyword as a template to instantiate multiple objects with uniform properties and prototype methods.
+
+**Code Example:**
+```javascript
+function Car(model, year) {
+  this.model = model;
+  this.year = year;
+}
+var car1 = new Car("Honda", 2020);
+var car2 = new Car("Ford", 2022);
+console.log(car1.model); // Output: "Honda"
+console.log(car2.model); // Output: "Ford"
+```
+
+---
+
+#### 28. What is DOM?
+
+**Answer:**  
+Document Object Model: a tree representation of HTML nodes created by the browser that JavaScript can manipulate.
+
+**Code Example:**
+```javascript
+// Given <div id="app"></div>
+var container = document.getElementById("app");
+container.innerHTML = "<p>New Content Inserted</p>";
+```
+
+---
+
+#### 29. Which method is used to retrieve a character from a certain index?
+
+**Answer:**  
+The `charAt(index)` method.
+
+**Code Example:**
+```javascript
+var text = "JavaScript";
+console.log(text.charAt(4)); // Output: "S"
+```
+
+---
+
+#### 30. What do you mean by BOM?
+
+**Answer:**  
+Browser Object Model: provides access to browser objects like `window`, `navigator`, `history`, and `location`.
+
+**Code Example:**
+```javascript
+console.log(window.location.href); // Current URL
+console.log(navigator.userAgent);  // Browser details
+// window.history.back();          // Navigates back
+```
+
+---
+
+#### 31. What is the distinction between client-side and server-side JavaScript?
+
+**Answer:**  
+- **Client-side:** Runs in the browser, accesses DOM/BOM, handles events.
+- **Server-side (Node.js):** Runs on the machine/server, accesses OS file systems, databases, network sockets.
+
+**Code Example:**
+```javascript
+// Client-side:
+// window.alert("Browser alert");
+
+// Server-side (Node.js):
+// const fs = require("fs");
+// fs.writeFileSync("test.txt", "Server file system data");
+```
+
+---
+
+### 7.2 Questions for Experienced
+
+#### 32. What are arrow functions?
+
+**Answer:**  
+Arrow functions provide a concise syntax and do not bind their own `this`, inheriting it from the enclosing lexical scope.
+
+**Code Example:**
+```javascript
+const numbers = [1, 2, 3];
+const squares = numbers.map(n => n * n);
+console.log(squares); // Output: [1, 4, 9]
+
+const obj = {
+  name: "Garry",
+  regularFunc: function() {
+    setTimeout(() => {
+      console.log(this.name); // Inherits 'this' from regularFunc (obj)
+    }, 100);
+  }
+};
+obj.regularFunc(); // Output: "Garry"
+```
+
+---
+
+#### 33. What do mean by prototype design pattern?
+
+**Answer:**  
+A pattern where an object acts as a prototype template to clone and create new instances pre-populated with values.
+
+**Code Example:**
+```javascript
+const carPrototype = {
+  wheels: 4,
+  init(model) {
+    this.model = model;
+  }
+};
+
+const myCar = Object.create(carPrototype);
+myCar.init("Tesla");
+console.log(myCar.model);  // Output: "Tesla"
+console.log(myCar.wheels); // Output: 4 (inherited from prototype)
+```
+
+---
+
+#### 34. Differences between declaring variables using var, let and const.
+
+**Answer:**  
+- `var`: Function scope, reassignable, redeclarable.
+- `let`: Block scope, reassignable, no redeclaration.
+- `const`: Block scope, cannot be reassigned.
+
+**Code Example:**
+```javascript
+var a = 1;
+var a = 2; // Allowed
+
+let b = 10;
+b = 20;    // Allowed
+// let b = 30; // SyntaxError: Identifier 'b' has already been declared
+
+const c = 100;
+// c = 200;   // TypeError: Assignment to constant variable.
+const user = { name: "John" };
+user.name = "Doe"; // Allowed: mutating property, not reassignment
+```
+
+---
+
+#### 35. What is the rest parameter and spread operator?
+
+**Answer:**  
+- **Rest parameter:** Gathers arguments into an array (in function declarations).
+- **Spread operator:** Expands arrays or objects into elements (in function calls/literals).
+
+**Code Example:**
+```javascript
+// Rest Parameter
+function sumAll(...numbers) {
+  return numbers.reduce((acc, curr) => acc + curr, 0);
+}
+console.log(sumAll(1, 2, 3, 4)); // Output: 10
+
+// Spread Operator
+const arr1 = [1, 2];
+const arr2 = [...arr1, 3, 4];
+console.log(arr2); // Output: [1, 2, 3, 4]
+```
+
+---
+
+#### 36. In JavaScript, how many different methods can you make an object?
+
+**Answer:**  
+Object literals, Object constructor, `Object.create`, constructor functions, classes, factory functions.
+
+**Code Example:**
+```javascript
+// 1. Literal
+const o1 = { a: 1 };
+
+// 2. new Object()
+const o2 = new Object({ a: 1 });
+
+// 3. Object.create
+const o3 = Object.create(null);
+
+// 4. Constructor Function
+function ObjFactory() { this.a = 1; }
+const o4 = new ObjFactory();
+
+// 5. ES6 Class
+class MyObj { constructor() { this.a = 1; } }
+const o5 = new MyObj();
+```
+
+---
+
+#### 37. What is the use of promises in javascript?
+
+**Answer:**  
+Handles asynchronous operations without nested callbacks. Has Pending, Fulfilled, Rejected states.
+
+**Code Example:**
+```javascript
+const checkNumber = new Promise((resolve, reject) => {
+  let val = 10;
+  if (val > 5) {
+    resolve("Success: Number is greater than 5");
+  } else {
+    reject("Failed: Number is too small");
+  }
+});
+
+checkNumber
+  .then(res => console.log(res))
+  .catch(err => console.error(err));
+```
+
+---
+
+#### 38. What are classes in javascript?
+
+**Answer:**  
+Syntactic sugar over constructor functions and prototypal inheritance introduced in ES6.
+
+**Code Example:**
+```javascript
+class Animal {
+  constructor(name) {
+    this.name = name;
+  }
+  speak() {
+    console.log(this.name + " makes a noise.");
+  }
+}
+
+class Dog extends Animal {
+  speak() {
+    console.log(this.name + " barks.");
+  }
+}
+
+const dog = new Dog("Rex");
+dog.speak(); // Output: "Rex barks."
+```
+
+---
+
+#### 39. What are generator functions?
+
+**Answer:**  
+Functions declared with `function*` that pause execution with `yield` and resume using `.next()`.
+
+**Code Example:**
+```javascript
+function* countUp() {
+  yield 1;
+  yield 2;
+  yield 3;
+}
+
+const gen = countUp();
+console.log(gen.next()); // Output: { value: 1, done: false }
+console.log(gen.next()); // Output: { value: 2, done: false }
+console.log(gen.next()); // Output: { value: 3, done: false }
+console.log(gen.next()); // Output: { value: undefined, done: true }
+```
+
+---
+
+#### 40. Explain WeakSet in javascript.
+
+**Answer:**  
+A collection containing only objects held weakly. If an object has no other references, it is garbage collected.
+
+**Code Example:**
+```javascript
+const weakSet = new WeakSet();
+let obj = { role: "admin" };
+
+weakSet.add(obj);
+console.log(weakSet.has(obj)); // Output: true
+
+obj = null; // Object is now eligible for garbage collection
+```
+
+---
+
+#### 41. Why do we use callbacks?
+
+**Answer:**  
+To ensure dependent code executes only after an asynchronous task completes without blocking the main event thread.
+
+**Code Example:**
+```javascript
+function downloadFile(url, onComplete) {
+  setTimeout(() => {
+    console.log("Downloaded: " + url);
+    onComplete();
+  }, 500);
+}
+
+downloadFile("https://example.com/file.png", () => {
+  console.log("Ready to process file!");
+});
+```
+
+---
+
+#### 42. Explain WeakMap in javascript.
+
+**Answer:**  
+A key-value collection where keys must be objects and are held weakly (garbage collected when no references remain).
+
+**Code Example:**
+```javascript
+const weakMap = new WeakMap();
+let userObj = { id: 101 };
+
+weakMap.set(userObj, "Secret Data");
+console.log(weakMap.get(userObj)); // Output: "Secret Data"
+
+userObj = null; // Key and value are cleaned up by garbage collection
+```
+
+---
+
+#### 43. What is Object Destructuring?
+
+**Answer:**  
+A clean syntax to unpack object properties or array elements directly into variables.
+
+**Code Example:**
+```javascript
+const user = { id: 1, username: "vivek_b", email: "v@test.com" };
+const { username, email } = user;
+console.log(username); // Output: "vivek_b"
+console.log(email);    // Output: "v@test.com"
+
+const colors = ["red", "green", "blue"];
+const [primary, secondary] = colors;
+console.log(primary);   // Output: "red"
+```
+
+---
+
+#### 44. Difference between prototypal and classical inheritance.
+
+**Answer:**  
+- **Classical:** Classes inherit from classes (blueprints).
+- **Prototypal:** Objects inherit directly from other objects via prototype links.
+
+**Code Example:**
+```javascript
+const parentObj = {
+  greet() {
+    return "Hello from parent";
+  }
+};
+
+const childObj = Object.create(parentObj);
+console.log(childObj.greet()); // Output: "Hello from parent"
+```
+
+---
+
+#### 45. What is a Temporal Dead Zone?
+
+**Answer:**  
+The time between the start of a block and the declaration of a `let` or `const` variable, where accessing it throws a ReferenceError.
+
+**Code Example:**
+```javascript
+{
+  // TDZ for myVar starts here
+  // console.log(myVar); // ReferenceError: Cannot access 'myVar' before initialization
+  let myVar = 10;       // TDZ ends here
+  console.log(myVar);   // Output: 10
+}
+```
+
+---
+
+#### 46. What do you mean by JavaScript Design Patterns?
+
+**Answer:**  
+Proven structural paradigms:
+- **Creational** (e.g., Singleton)
+- **Structural** (e.g., Module/Facade)
+- **Behavioral** (e.g., Observer)
+
+**Code Example (Singleton Pattern):**
+```javascript
+const Singleton = (function() {
+  let instance;
+  function createInstance() {
+    return { name: "MainInstance" };
+  }
+  return {
+    getInstance: function() {
+      if (!instance) {
+        instance = createInstance();
+      }
+      return instance;
+    }
+  };
+})();
+
+const s1 = Singleton.getInstance();
+const s2 = Singleton.getInstance();
+console.log(s1 === s2); // Output: true
+```
+
+---
+
+#### 47. Is JavaScript a pass-by-reference or pass-by-value language?
+
+**Answer:**  
+Always pass-by-value. For objects, the value passed is the reference address itself. Reassigning the parameter variable does not change the original reference.
+
+**Code Example:**
+```javascript
+function modify(obj) {
+  obj.age = 30;              // Mutates original object property
+  obj = { age: 100 };        // Reassigns local parameter variable only
+}
+
+const person = { age: 20 };
+modify(person);
+console.log(person.age);     // Output: 30 (not 100)
+```
+
+---
+
+#### 48. Difference between Async/Await and Generators usage to achieve the same functionality.
+
+**Answer:**  
+- **Generators:** Yield values one-by-one via an iterator (`{ value, done }`).
+- **Async/Await:** Native syntax on top of Promises for sequential asynchronous code execution.
+
+**Code Example:**
+```javascript
+// Async/Await
+async function getAsyncData() {
+  const result = await Promise.resolve("Resolved Data");
+  console.log(result);
+}
+getAsyncData(); // Output: "Resolved Data"
+```
+
+---
+
+#### 49. What are the primitive data types in JavaScript?
+
+**Answer:**  
+Boolean, Undefined, Null, Number, String, BigInt, and Symbol.
+
+**Code Example:**
+```javascript
+const primitives = [
+  true,
+  undefined,
+  null,
+  123,
+  "Text",
+  10n,
+  Symbol("id")
+];
+primitives.forEach(p => console.log(typeof p));
+```
+
+---
+
+#### 50. What is the role of deferred scripts in JavaScript?
+
+**Answer:**  
+The `defer` attribute downloads scripts in the background and executes them only after the HTML document is completely parsed.
+
+**Code Example (HTML):**
+```html
+<script src="script.js" defer></script>
+```
+
+---
+
+#### 51. What has to be done in order to put Lexical Scoping into practice?
+
+**Answer:**  
+A function keeps an internal reference to its surrounding scope chain based on where it was declared in the source code.
+
+**Code Example:**
+```javascript
+function outer() {
+  const scopeMsg = "I am lexical";
+  function inner() {
+    console.log(scopeMsg); // Resolves lexically from outer's environment
+  }
+  return inner;
+}
+const run = outer();
+run(); // Output: "I am lexical"
+```
+
+---
+
+#### 52. What is the purpose of the following JavaScript code?
+
+**Code Example:**
+```javascript
+var scope = "global scope";
+function check() {
+  var scope = "local scope";
+  function f() {
+    return scope;
+  }
+  return f;
+}
+console.log(check()());
+```
+
+**Answer:**  
+Demonstrates closures and lexical environments. Calling `check()()` returns `"local scope"` because `f` captures the local `scope` variable where it was defined.
+
+---
+
+### 7.3 Coding Questions & Exercises
+
+#### 53. Guess the outputs of the following codes:
+
+**Code Example 1:**
+```javascript
+function func1(){
+  setTimeout(() => {
+    console.log(x);
+    console.log(y);
+  }, 3000);
+  var x = 2;
+  let y = 12;
+}
+func1();
+// Output (after 3s): 2, 12
+```
+
+**Code Example 2:**
+```javascript
+function func2(){
+  for(var i = 0; i < 3; i++){
+    setTimeout(() => console.log(i), 2000);
+  }
+}
+func2();
+// Output (after 2s): 3, 3, 3
+```
+
+**Code Example 3:**
+```javascript
+(function(){
+  setTimeout(() => console.log(1), 2000);
+  console.log(2);
+  setTimeout(() => console.log(3), 0);
+  console.log(4);
+})();
+// Output: 2, 4, 3, 1
+```
+
+---
+
+#### 54. Guess the outputs of the following code:
+
+**Code Example 1:**
+```javascript
+let x = {}, y = { name: "Ronny" }, z = { name: "John" };
+x[y] = { name: "Vivek" };
+x[z] = { name: "Akki" };
+console.log(x[y]);
+// Output: { name: "Akki" } (both key access look up "[object Object]")
+```
+
+**Code Example 2:**
+```javascript
+console.log("1" + 1);               // Output: "11"
+console.log("A" - 1);               // Output: NaN
+console.log(2 + "-2" + "2");        // Output: "2-22"
+console.log("Hello" - "world" + 78);// Output: NaN
+console.log("Hello" + "78");        // Output: "Hello78"
+```
+
+**Code Example 3:**
+```javascript
+let a = 0;
+let b = false;
+console.log(a == b);  // Output: true  (0 == 0)
+console.log(a === b); // Output: false (number !== boolean)
+```
+
+---
+
+#### 55. Guess the output of the following code:
+
+**Code Example:**
+```javascript
+var x = 23;
+(function(){
+  var x = 43;
+  (function random() {
+    x++;
+    console.log(x);
+    var x = 21;
+  })();
+})();
+// Output: NaN
+// Explanation: The declaration 'var x' inside random() is hoisted as undefined. undefined++ evaluates to NaN.
+```
+
+---
+
+#### 56. Guess the outputs of the following code:
+
+**Code Example 1:**
+```javascript
+let hero = {
+  powerLevel: 99,
+  getPower() {
+    return this.powerLevel;
+  }
+};
+let getPower = hero.getPower;
+let hero2 = { powerLevel: 42 };
+
+console.log(getPower());             // Output: undefined (invoked globally)
+console.log(getPower.apply(hero2));  // Output: 42 (bound to hero2)
+```
+
+**Code Example 2:**
+```javascript
+const a = function(){
+  console.log(this);
+  const b = {
+    func1: function(){ console.log(this); }
+  };
+  const c = {
+    func2: () => { console.log(this); }
+  };
+  b.func1();
+  c.func2();
+};
+a();
+// Output: window (or global), Object b, window (or global)
+```
+
+**Code Example 3:**
+```javascript
+const b = {
+  name: "Vivek",
+  f: function(){
+    var self = this;
+    console.log(this.name);
+    (function(){
+      console.log(this.name);
+      console.log(self.name);
+    })();
+  }
+};
+b.f();
+// Output: "Vivek", undefined, "Vivek"
+```
+
+---
+
+#### 57. Guess the outputs / Modify the code:
+
+**Code Example 1:**
+```javascript
+(function(a){
+  return (function(){
+    console.log(a);
+    a = 23;
+  })();
+})(45);
+// Output: 45
+```
+
+**Code Example 2 (Optimization to avoid array re-creation):**
+```javascript
+function bigFunc() {
+  let newArray = new Array(700).fill('');
+  return function(element) {
+    return newArray[element];
+  };
+}
+let getElement = bigFunc();
+console.log(getElement(599));
+console.log(getElement(670));
+```
+
+**Code Example 3 (Fix to output 0 and 1):**
+```javascript
+// Fix with let:
+for (let i = 0; i < 2; i++) {
+  setTimeout(() => console.log(i), 1000);
+}
+// Fix with IIFE closure:
+for (var i = 0; i < 2; i++) {
+  (function(i) {
+    setTimeout(() => console.log(i), 1000);
+  })(i);
+}
+```
+
+---
+
+#### 58. Write a function that performs binary search on a sorted array.
+
+**Code Example:**
+```javascript
+function binarySearch(arr, value, startPos = 0, endPos = arr.length - 1) {
+  if (startPos > endPos) return -1;
+  let middleIndex = Math.floor((startPos + endPos) / 2);
+
+  if (arr[middleIndex] === value) {
+    return middleIndex;
+  } else if (arr[middleIndex] > value) {
+    return binarySearch(arr, value, startPos, middleIndex - 1);
+  } else {
+    return binarySearch(arr, value, middleIndex + 1, endPos);
+  }
+}
+
+console.log(binarySearch([10, 20, 30, 40, 50], 30)); // Output: 2
+console.log(binarySearch([10, 20, 30, 40, 50], 99)); // Output: -1
+```
+
+---
+
+#### 59. Implement a function that returns an updated array with r right rotations on an array of integers a.
+
+**Code Example:**
+```javascript
+function rotateRight(arr, rotations) {
+  if (rotations === 0) return arr;
+  for (let i = 0; i < rotations; i++) {
+    let element = arr.pop();
+    arr.unshift(element);
+  }
+  return arr;
+}
+
+console.log(rotateRight([2, 3, 4, 5, 7], 3)); // Output: [4, 5, 7, 2, 3]
+```
+
+---
+
+#### 60. Write the code for dynamically inserting new components.
+
+**Code Example:**
+```javascript
+function addNode() {
+  var newP = document.createElement("p");
+  var textNode = document.createTextNode("This is another node");
+  newP.appendChild(textNode);
+  document.getElementById("parent1").appendChild(newP);
+}
+
+// HTML Context:
+// <body>
+//   <div id="parent1"><p>firstP</p></div>
+// </body>
+```
+
+---
+
+#### 61. Write the code given If two strings are anagrams of one another, then return true.
+
+**Code Example:**
+```javascript
+function isAnagram(one, two) {
+  var a = one.toLowerCase().split("").sort().join("");
+  var b = two.toLowerCase().split("").sort().join("");
+  return a === b;
+}
+
+console.log(isAnagram("listen", "silent")); // Output: true
+console.log(isAnagram("hello", "world"));   // Output: false
+```
+
+---
+
+#### 62. Write the code to find the vowels.
+
+**Code Example:**
+```javascript
+const findVowels = str => {
+  let count = 0;
+  const vowels = ['a', 'e', 'i', 'o', 'u'];
+  for (let char of str.toLowerCase()) {
+    if (vowels.includes(char)) {
+      count++;
+    }
+  }
+  return count;
+};
+
+console.log(findVowels("InterviewBit")); // Output: 5
+```
+
+---
+
+#### 63. In JavaScript, how do you turn an Object into an Array []?
+
+**Code Example:**
+```javascript
+let obj = { id: "1", name: "user22", age: "26", work: "programmer" };
+
+// 1. Convert keys to Array
+console.log(Object.keys(obj));
+// Output: ["id", "name", "age", "work"]
+
+// 2. Convert values to Array
+console.log(Object.values(obj));
+// Output: ["1", "user22", "26", "programmer"]
+
+// 3. Convert key-value entries to Array
+console.log(Object.entries(obj));
+// Output: [["id", "1"], ["name", "user22"], ["age", "26"], ["work", "programmer"]]
+```
+
+---
+
+#### 64. What is the output of the following code?
+
+**Code Example:**
+```javascript
+const b = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10];
+
+for (let i = 0; i < 10; i++) {
+  setTimeout(() => console.log(b[i]), 1000);
+}
+
+for (var i = 0; i < 10; i++) {
+  setTimeout(() => console.log(b[i]), 1000);
+}
+```
+
+**Output:**
+```javascript
+// The first loop (let) logs:
+1
+2
+3
+4
+5
+6
+7
+8
+9
+10
+
+// The second loop (var) logs:
+undefined
+undefined
+undefined
+undefined
+undefined
+undefined
+undefined
+undefined
+undefined
+undefined
+// (Because let creates a new binding of i per iteration, whereas var shares one global/function-scoped i that increments to 10 before callbacks fire, resulting in b[10] -> undefined).
+```
+
+---
+
 
 ### 7.6 Coding Problem Bank
+
+
+#### Polyfill: Array.prototype.map, filter, reduce, flat
+
+Production polyfills adhering to ECMAScript specifications (sparse array handling, execution context passing).
+
+```javascript
+// 1. Array.prototype.myMap
+Array.prototype.myMap = function(callback, thisArg) {
+  if (this == null) throw new TypeError('this is null or not defined');
+  if (typeof callback !== 'function') throw new TypeError(callback + ' is not a function');
+  
+  const O = Object(this);
+  const len = O.length >>> 0;
+  const result = new Array(len);
+
+  for (let i = 0; i < len; i++) {
+    if (i in O) {
+      result[i] = callback.call(thisArg, O[i], i, O);
+    }
+  }
+  return result;
+};
+
+// 2. Array.prototype.myFilter
+Array.prototype.myFilter = function(callback, thisArg) {
+  if (this == null) throw new TypeError('this is null or not defined');
+  if (typeof callback !== 'function') throw new TypeError(callback + ' is not a function');
+
+  const O = Object(this);
+  const len = O.length >>> 0;
+  const result = [];
+
+  for (let i = 0; i < len; i++) {
+    if (i in O && callback.call(thisArg, O[i], i, O)) {
+      result.push(O[i]);
+    }
+  }
+  return result;
+};
+
+// 3. Array.prototype.myReduce
+Array.prototype.myReduce = function(callback, initialValue) {
+  if (this == null) throw new TypeError('this is null or not defined');
+  if (typeof callback !== 'function') throw new TypeError(callback + ' is not a function');
+
+  const O = Object(this);
+  const len = O.length >>> 0;
+  let k = 0;
+  let accumulator;
+
+  if (arguments.length >= 2) {
+    accumulator = initialValue;
+  } else {
+    while (k < len && !(k in O)) k++;
+    if (k >= len) throw new TypeError('Reduce of empty array with no initial value');
+    accumulator = O[k++];
+  }
+
+  for (; k < len; k++) {
+    if (k in O) {
+      accumulator = callback(accumulator, O[k], k, O);
+    }
+  }
+  return accumulator;
+};
+
+// 4. Array.prototype.myFlat
+Array.prototype.myFlat = function(depth = 1) {
+  const flatten = (arr, d) => {
+    return d > 0
+      ? arr.reduce((acc, val) => acc.concat(Array.isArray(val) ? flatten(val, d - 1) : val), [])
+      : arr.slice();
+  };
+  return flatten(this, depth);
+};
+```
+
+#### Polyfill: Function.prototype.call, apply, bind
+
+Complete explicit binding implementations using Symbol to prevent property collisions.
+
+```javascript
+// 1. Function.prototype.myCall
+Function.prototype.myCall = function(context, ...args) {
+  context = (context === null || context === undefined) ? globalThis : Object(context);
+  const fnSymbol = Symbol('fn');
+  context[fnSymbol] = this;
+  const result = context[fnSymbol](...args);
+  delete context[fnSymbol];
+  return result;
+};
+
+// 2. Function.prototype.myApply
+Function.prototype.myApply = function(context, argsArray = []) {
+  context = (context === null || context === undefined) ? globalThis : Object(context);
+  const fnSymbol = Symbol('fn');
+  context[fnSymbol] = this;
+  const result = context[fnSymbol](...argsArray);
+  delete context[fnSymbol];
+  return result;
+};
+
+// 3. Function.prototype.myBind (Supports currying and 'new' instantiation)
+Function.prototype.myBind = function(context, ...boundArgs) {
+  const originalFn = this;
+  if (typeof originalFn !== 'function') {
+    throw new TypeError('Function.prototype.bind - what is trying to be bound is not callable');
+  }
+
+  function boundFunction(...callArgs) {
+    // If invoked with 'new', 'this' is the new instance
+    const isNew = this instanceof boundFunction;
+    return originalFn.apply(
+      isNew ? this : context,
+      [...boundArgs, ...callArgs]
+    );
+  }
+
+  if (originalFn.prototype) {
+    boundFunction.prototype = Object.create(originalFn.prototype);
+  }
+  return boundFunction;
+};
+```
+
+#### Polyfill: Promises/A+ Specification Implementation
+
+A complete microtask-based, state-machine implementation compliant with the Promises/A+ specification.
+
+```javascript
+const PENDING = 'PENDING';
+const FULFILLED = 'FULFILLED';
+const REJECTED = 'REJECTED';
+
+class MyPromise {
+  constructor(executor) {
+    this.state = PENDING;
+    this.value = undefined;
+    this.reason = undefined;
+    this.onFulfilledCallbacks = [];
+    this.onRejectedCallbacks = [];
+
+    const resolve = (value) => {
+      if (value instanceof MyPromise) {
+        return value.then(resolve, reject);
+      }
+      if (this.state === PENDING) {
+        this.state = FULFILLED;
+        this.value = value;
+        this.onFulfilledCallbacks.forEach(fn => fn());
+      }
+    };
+
+    const reject = (reason) => {
+      if (this.state === PENDING) {
+        this.state = REJECTED;
+        this.reason = reason;
+        this.onRejectedCallbacks.forEach(fn => fn());
+      }
+    };
+
+    try {
+      executor(resolve, reject);
+    } catch (err) {
+      reject(err);
+    }
+  }
+
+  then(onFulfilled, onRejected) {
+    onFulfilled = typeof onFulfilled === 'function' ? onFulfilled : v => v;
+    onRejected = typeof onRejected === 'function' ? onRejected : err => { throw err; };
+
+    const promise2 = new MyPromise((resolve, reject) => {
+      const handleCallback = (callback, value, isFulfilled) => {
+        queueMicrotask(() => {
+          try {
+            const x = callback(value);
+            this.resolvePromise(promise2, x, resolve, reject);
+          } catch (err) {
+            reject(err);
+          }
+        });
+      };
+
+      if (this.state === FULFILLED) {
+        handleCallback(onFulfilled, this.value, true);
+      } else if (this.state === REJECTED) {
+        handleCallback(onRejected, this.reason, false);
+      } else {
+        this.onFulfilledCallbacks.push(() => handleCallback(onFulfilled, this.value, true));
+        this.onRejectedCallbacks.push(() => handleCallback(onRejected, this.reason, false));
+      }
+    });
+
+    return promise2;
+  }
+
+  resolvePromise(promise2, x, resolve, reject) {
+    if (promise2 === x) {
+      return reject(new TypeError('Chaining cycle detected for promise'));
+    }
+
+    if (x !== null && (typeof x === 'object' || typeof x === 'function')) {
+      let called = false;
+      try {
+        const then = x.then;
+        if (typeof then === 'function') {
+          then.call(
+            x,
+            y => {
+              if (called) return;
+              called = true;
+              this.resolvePromise(promise2, y, resolve, reject);
+            },
+            r => {
+              if (called) return;
+              called = true;
+              reject(r);
+            }
+          );
+        } else {
+          resolve(x);
+        }
+      } catch (err) {
+        if (called) return;
+        reject(err);
+      }
+    } else {
+      resolve(x);
+    }
+  }
+
+  catch(onRejected) {
+    return this.then(null, onRejected);
+  }
+
+  static resolve(value) {
+    return new MyPromise(resolve => resolve(value));
+  }
+
+  static reject(reason) {
+    return new MyPromise((_, reject) => reject(reason));
+  }
+}
+```
+
+#### Algorithm: Production Deep Clone with Circular Reference Handling
+
+Clones nested objects, arrays, Dates, RegExps, Sets, Maps, and handles circular references via WeakMap.
+
+```javascript
+function deepClone(target, hash = new WeakMap()) {
+  // Primitives and functions
+  if (target === null || typeof target !== 'object') {
+    return target;
+  }
+
+  // Handle circular references
+  if (hash.has(target)) {
+    return hash.get(target);
+  }
+
+  // Handle Date
+  if (target instanceof Date) {
+    return new Date(target.getTime());
+  }
+
+  // Handle RegExp
+  if (target instanceof RegExp) {
+    return new RegExp(target.source, target.flags);
+  }
+
+  // Handle Map
+  if (target instanceof Map) {
+    const mapClone = new Map();
+    hash.set(target, mapClone);
+    target.forEach((val, key) => {
+      mapClone.set(deepClone(key, hash), deepClone(val, hash));
+    });
+    return mapClone;
+  }
+
+  // Handle Set
+  if (target instanceof Set) {
+    const setClone = new Set();
+    hash.set(target, setClone);
+    target.forEach(val => setClone.add(deepClone(val, hash)));
+    return setClone;
+  }
+
+  // Handle Array or Plain Object
+  const cloneTarget = Array.isArray(target) ? [] : Object.create(Object.getPrototypeOf(target));
+  hash.set(target, cloneTarget);
+
+  // Copy Symbols and regular properties
+  const keys = Reflect.ownKeys(target);
+  for (const key of keys) {
+    cloneTarget[key] = deepClone(target[key], hash);
+  }
+
+  return cloneTarget;
+}
+```
+
+#### Utility: Production Debounce and Throttle with Leading/Trailing Options
+
+Full-featured debounce and throttle utilities with cancel and flush support.
+
+```javascript
+function debounce(fn, wait, { leading = false, trailing = true } = {}) {
+  let timeoutId = null;
+  let lastArgs = null;
+  let lastThis = null;
+  let result;
+
+  function invoke() {
+    timeoutId = null;
+    if (trailing && lastArgs) {
+      result = fn.apply(lastThis, lastArgs);
+      lastArgs = lastThis = null;
+    }
+  }
+
+  function debounced(...args) {
+    lastArgs = args;
+    lastThis = this;
+
+    const callNow = leading && !timeoutId;
+
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = setTimeout(invoke, wait);
+
+    if (callNow) {
+      result = fn.apply(lastThis, lastArgs);
+      lastArgs = lastThis = null;
+    }
+    return result;
+  }
+
+  debounced.cancel = () => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = null;
+    lastArgs = lastThis = null;
+  };
+
+  debounced.flush = () => {
+    if (timeoutId) {
+      invoke();
+      clearTimeout(timeoutId);
+    }
+    return result;
+  };
+
+  return debounced;
+}
+
+function throttle(fn, wait, { leading = true, trailing = true } = {}) {
+  let timeoutId = null;
+  let lastArgs = null;
+  let lastThis = null;
+  let lastCallTime = 0;
+
+  function invoke() {
+    lastCallTime = leading ? Date.now() : 0;
+    timeoutId = null;
+    fn.apply(lastThis, lastArgs);
+    lastArgs = lastThis = null;
+  }
+
+  function throttled(...args) {
+    const now = Date.now();
+    if (!lastCallTime && !leading) lastCallTime = now;
+    const remaining = wait - (now - lastCallTime);
+
+    lastArgs = args;
+    lastThis = this;
+
+    if (remaining <= 0 || remaining > wait) {
+      if (timeoutId) {
+        clearTimeout(timeoutId);
+        timeoutId = null;
+      }
+      lastCallTime = now;
+      fn.apply(lastThis, lastArgs);
+      lastArgs = lastThis = null;
+    } else if (!timeoutId && trailing) {
+      timeoutId = setTimeout(invoke, remaining);
+    }
+  }
+
+  throttled.cancel = () => {
+    if (timeoutId) clearTimeout(timeoutId);
+    timeoutId = null;
+    lastCallTime = 0;
+    lastArgs = lastThis = null;
+  };
+
+  return throttled;
+}
+```
+
+#### Sort an Array (Bubble Sort)
 
 Sorts an array of numbers without using any built-in method.
 
